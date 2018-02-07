@@ -1,0 +1,21 @@
+resolver: lts-10.4
+
+packages:
+  - .
+  - ../iso
+  - ../streaming-concurrency
+
+extra-deps:
+  - git: https://github.com/tonyday567/mvc-extended.git
+    commit: 3a9f7db2749d04795d773794b01714d63b35398b
+  - git: https://github.com/kcsongor/generic-lens.git
+    commit: 876ad15282e2ea5e5d77e3eae4c4a2bba77bd81a
+  - git: https://github.com/tonyday567/generic-lens-labels.git
+    commit: 268482be078e543c1f8fef33ae8ceabc7a201f8b
+  # - git: https://github.com/tonyday567/web-page.git
+  #  commit: 9d7437e4b164e42eef097202de571022291f7e80
+  - pipes-http-1.0.5
+  - mmorph-1.0.9
+  - mvc-1.1.6
+  - streaming-with-0.2.0.0
+  - streaming-0.1.4.5
