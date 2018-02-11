@@ -2,8 +2,7 @@ resolver: lts-10.4
 
 packages:
   - .
-  - ../iso
-  - ../streaming-concurrency
+  - ../etc
 
 extra-deps:
   - git: https://github.com/tonyday567/mvc-extended.git
@@ -17,6 +16,5 @@ extra-deps:
   - pipes-http-1.0.5
   - mmorph-1.0.9
   - mvc-1.1.6
-  - streaming-with-0.2.0.0
   - streaming-0.1.4.5
   # - streaming-concurrency-0.3.0.1

@@ -1,5 +1,5 @@
-name: mvc-socket
-version: '0.0.1'
+name: etc-websockets
+version: '0.0.1.0'
 synopsis: See readme.md
 description: See readme.md for description.
 category: project
@@ -9,45 +9,8 @@ copyright: Tony Day (c) 2017
 license: BSD3
 github: tonyday567/mvc-socket
 extra-source-files:
-- other/lhs.css
-- other/header.md
-- other/footer.md
-default-extensions:
-- BangPatterns
-- BinaryLiterals
-- DeriveFoldable
-- DeriveFunctor
-- DeriveGeneric
-- DeriveTraversable
-- DisambiguateRecordFields
-- EmptyCase
-- FlexibleContexts
-- FlexibleInstances
-- FunctionalDependencies
-- GADTSyntax
-- InstanceSigs
-- KindSignatures
-- LambdaCase
-- MonadComprehensions
-- MultiParamTypeClasses
-- MultiWayIf
-- NegativeLiterals
-- NoImplicitPrelude
-- OverloadedStrings
-- ParallelListComp
-- PartialTypeSignatures
-- PatternSynonyms
-- RankNTypes
-- RecordWildCards
-- RecursiveDo
-- ScopedTypeVariables
-- TupleSections
-- TypeFamilies
-- TypeOperators
-- UnicodeSyntax
-dependencies:
-- base >=4.7 && <5
-- mvc-extended
+- stack.yaml
+- readme.md
 library:
   source-dirs: src
   ghc-options:
@@ -55,23 +18,21 @@ library:
   dependencies:
     - aeson
     - async
+    - base
     - data-default
+    - etc
+    - flow
     - generic-lens-labels
     - lens
     - managed
-    - mvc
-    - mvc-extended
     - network
-    - pipes
+    - pipes-concurrency
     - protolude
+    - streaming
     - text
     - websockets
-    - iso
-    - flow
-    - streaming
-    - streaming-concurrency
   exposed-modules:
-    - MVC.Socket
+    - Etc.WebSockets
 
 executables:
   wsdebug:
@@ -84,39 +45,22 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
+    - etc-websockets
     - aeson
     - async
+    - base
+    - contravariant
     - data-default
+    - flow
     - generic-lens-labels
+    - etc
     - lens
     - managed
-    - mvc
-    - mvc-extended
-    - mvc-socket
     - network
+    - optparse-generic
     - pipes
+    - pipes-concurrency
     - protolude
+    - streaming
     - text
     - websockets
-    - protolude
-    - optparse-generic
-    - iso
-    - websockets
-    - iso
-    - flow
-    - streaming
-    - streaming-concurrency
-    - pipes-concurrency
-    - contravariant
-tests:
-  test:
-    main: test.hs
-    source-dirs: test
-    dependencies:
-    - HUnit
-    - QuickCheck
-    - doctest
-    - protolude
-    - tasty
-    - tasty-hunit
-    - tasty-quickcheck
