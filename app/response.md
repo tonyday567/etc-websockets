@@ -14,7 +14,7 @@ recipe
 ---
 
 ```
-stack build --test --exec "$(stack path --local-install-root)/bin/mvc-socket-example" --exec "$(stack path --local-bin)/pandoc -f markdown -i other/header.md app/example.md other/footer.md -t html -o index.html --filter pandoc-include --mathjax" --exec "$(stack path --local-bin)/pandoc -f markdown -i app/example.md -t markdown -o readme.md --filter pandoc-include --mathjax" --file-watch
+stack build --test --exec "$(stack path --local-install-root)/bin/mvc-socket-example" --file-watch
 ```
 
 reference

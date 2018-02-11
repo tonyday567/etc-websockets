@@ -74,8 +74,8 @@ library:
     - MVC.Socket
 
 executables:
-  response:
-    main: response.hs
+  wsdebug:
+    main: wsdebug.hs
     source-dirs: app
     ghc-options:
     - -funbox-strict-fields
@@ -101,6 +101,13 @@ executables:
     - protolude
     - optparse-generic
     - iso
+    - websockets
+    - iso
+    - flow
+    - streaming
+    - streaming-concurrency
+    - pipes-concurrency
+    - contravariant
 tests:
   test:
     main: test.hs

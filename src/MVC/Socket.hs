@@ -9,7 +9,7 @@ module MVC.Socket where
 import Data.Generics.Labels()
 import Control.Concurrent.Async as Async
 import Control.Exception (bracket, finally)
-import Control.Lens hiding ((|>))
+import Control.Lens
 import Control.Monad.Managed
 import Data.Aeson
 import Data.Data
@@ -27,9 +27,9 @@ import qualified Network.WebSockets as WS
 import Pipes.Extended
 import qualified Pipes.Prelude as Pipes
 import Protolude
-import ISO
+import ETC
 import Flow
-import qualified Streaming as S hiding (run)
+import qualified Streaming as S
 import qualified Streaming.Prelude as S
 import Streaming.Concurrent
 
@@ -44,14 +44,29 @@ instance Default ConfigSocket where
 data SocketComms
   = ServerReady
   | CloseSocket
+  | CloseClient
   | ServerClosed
   | ClientClosed
   | ClientReady
+  | StartClient
+  | StartServer
   | SocketLog Text
+  | CheckServer
+  | CheckClient
+  | Nuke
   deriving (Show, Read, Eq, Data, Typeable, Generic)
 
 instance FromJSON SocketComms
 instance ToJSON SocketComms
+
+data ControlComms
+  = Start
+  | Stop
+  | Reset
+  | Destroy
+  | Exists
+  | NoOpCC
+  deriving (Show, Read, Eq, Data, Typeable, Generic)
 
 client :: ConfigSocket -> WS.ClientApp () -> IO ()
 client c = WS.runClient (Text.unpack $ c ^. #host) (c ^. #port) "/"
@@ -59,18 +74,14 @@ client c = WS.runClient (Text.unpack $ c ^. #host) (c ^. #port) "/"
 server :: ConfigSocket -> WS.ServerApp -> IO ()
 server c = WS.runServer (Text.unpack $ c ^. #host) (c ^. #port)
 
-clientServer :: ConfigSocket -> WS.ClientApp () -> WS.ServerApp -> IO ()
-clientServer cfg c s = do
-  as <- async (server cfg s) 
-  ac <- async (do
-        sleep 0.1
-        client cfg c)
-  wait ac
-  cancel as
-  putStrLn ("clientServer out" :: Text)
-
 quitter :: Double -> a -> Managed (Controller a)
 quitter n q = MVC.producer MVC.unbounded (yield q >-> Pipes.chain (\_ -> sleep n))
+
+mconn :: WS.PendingConnection -> Managed WS.Connection
+mconn p = managed $
+  bracket
+  (WS.acceptRequest p)
+  (\conn -> WS.sendClose conn ("Bye from mconn!" :: Text))
 
 wsSocket ::
      ConfigSocket
@@ -118,49 +129,96 @@ wsSocket c =
     cancel aServer
     return result
 
-wsSocket' ::
+boxSocket ::
      ConfigSocket
-  -> Managed (Relator
-             (Either SocketComms ByteString)
-             (Either SocketComms ByteString))
-wsSocket' cfg = managed $ \k -> do
-  -- withBuffer unbounded (\c -> ) (\e -> )
-  -- aRunner <- async $ run cfg handler
-  -- (void . atomically . send oC) (Left ServerReady)
-  committer <- undefined
-  emitter <- undefined
-  result <- k ((Relator (Committer committer) (Emitter emitter)))
-  -- cancel aRunner
-  return result
+  -> Managed (Box (Either SocketComms ByteString) (Either SocketComms ByteString))
+boxSocket c =
+  join $
+  managed $ \k -> do
+    (oC, iC, sealC) <- spawn' MVC.unbounded
+    (oV, iV, sealV) <- spawn' MVC.unbounded
+    let handler pending =
+          with (managed (withConnection pending)) $ \conn -> do
+            aC <-
+              async $ do
+                runEffect $
+                  forever
+                    (do d <- lift $ WS.receiveData conn
+                        yield d) >->
+                  Pipes.map Right >->
+                  toOutput oC
+                atomically sealC
+            aV <-
+              async $ do
+                runEffect $
+                  fromInput iV >-> until' (Left CloseSocket) >->
+                  forever
+                    (do x <- await
+                        case x of
+                          Left CloseSocket -> do
+                            lift $ WS.sendClose conn ("closing" :: Text)
+                            lift $ putStrLn ("CloseSocket!" :: Text)
+                          Right stream -> lift $ WS.sendTextData conn stream
+                          _ -> return ())
+                atomically sealV
+            link aV
+            link aC
+            _ <- waitAnyCancel [aV, aC]
+            void $ atomically $ send oC (Left ServerClosed)
+    aServer <- async $ run c handler
+    (void . atomically . send oC) (Left ServerReady)
+    result <-
+      k (return (Box (Committer oV) (Emitter iC))) <*
+      atomically sealC <*
+      atomically sealV
+    cancel aServer
+    return result
+
+runner' ::
+  ConfigSocket ->
+  Managed (Box (Either SocketComms Text) (Either SocketComms Text))
+runner' cfg = (\(Box c e) -> Box c (Right <$> e)) <$> runner cfg
+
+runner ::
+  ConfigSocket ->
+  Managed (Box (Either SocketComms Text) Text)
+runner cfg = managed (run cfg . flip (with . handler) . (void .))
 
 handler ::
-  (WS.WebSocketsData a) =>
   WS.PendingConnection ->
-  Managed (Relator (Either SocketComms a) (Either SocketComms a)) ->
-  IO ()
-handler pending r = do
-  let c = (\(Relator c _) -> c) <$> r
-  let e = (\(Relator _ e) -> e) <$> r
-  with (managed (withConnection pending)) $ \conn -> do
-    aSend <- async $ fuse (wsSend conn |> toCommit) e
-    aRec <- async $ fuse c (wsReceive conn |> toEmit |> fmap (fmap Right))
-    link aSend
-    link aRec
-    void $ waitAnyCancel [aSend, aRec]
-  with c $ \(Committer b) -> void $ atomically $ sendMsg b (Left ServerClosed)
+  Managed (Box (Either SocketComms Text) Text)
+handler p =
+  managed (withConnection p . flip (with . wsBox))
 
-wsReceive :: (WS.WebSocketsData a) => WS.Connection -> (Committer a) -> IO ()
-wsReceive conn = \(Committer c) -> forever $ do
+wsRun ::
+  ConfigSocket ->
+  Managed (Box (Either SocketComms Text) Text)
+wsRun cfg = managed
+  ( run cfg
+  . flip ( with
+         . (\p -> managed ( withConnection p
+                          . flip (with . wsBox))))
+  . (void .)
+  )
+
+wsBox ::
+  (WS.WebSocketsData a) =>
+  WS.Connection ->
+  Managed (Box (Either SocketComms a) a)
+wsBox conn = Box <$> toCommit (wsSend conn) <*> toEmit (wsReceive conn)
+
+wsReceive :: (WS.WebSocketsData a) => WS.Connection -> Committer a -> IO ()
+wsReceive conn (Committer c) = forever $ do
   r <- WS.receiveData conn
-  atomically $ sendMsg c r
+  atomically $ send c r
 
 wsSend ::
   (WS.WebSocketsData a) =>
   WS.Connection ->
   Emitter (Either SocketComms a) ->
   IO ()
-wsSend conn = \(Emitter e) -> forever $ do
-  x <- atomically (receiveMsg e)
+wsSend conn (Emitter e) = forever $ do
+  x <- atomically (recv e)
   case x of
     Just (Left CloseSocket) ->
       WS.sendClose conn ("" :: Text)
@@ -175,7 +233,6 @@ withConnection pending =
 
 withSocket :: ConfigSocket -> (S.Socket -> IO c) -> IO c
 withSocket c = bracket (WS.makeListenSocket (Text.unpack $ c ^. #host) (c ^. #port)) S.close
-
 
 -- * servers
 runServerWith' :: ConfigSocket -> WS.ConnectionOptions -> WS.ServerApp -> IO ()

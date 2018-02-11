@@ -2,7 +2,7 @@
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: c66fc4754df9811a5669549188cd5c588fde456757c88493490162afdd9b9469
+-- hash: ca95fd84a026842b277e746219f68dd1311bae86582f4456e5a67f21661615ae
 
 name:           mvc-socket
 version:        0.0.1
@@ -58,8 +58,8 @@ library
       Paths_mvc_socket
   default-language: Haskell2010
 
-executable response
-  main-is: response.hs
+executable wsdebug
+  main-is: wsdebug.hs
   hs-source-dirs:
       app
   default-extensions: BangPatterns BinaryLiterals DeriveFoldable DeriveFunctor DeriveGeneric DeriveTraversable DisambiguateRecordFields EmptyCase FlexibleContexts FlexibleInstances FunctionalDependencies GADTSyntax InstanceSigs KindSignatures LambdaCase MonadComprehensions MultiParamTypeClasses MultiWayIf NegativeLiterals NoImplicitPrelude OverloadedStrings ParallelListComp PartialTypeSignatures PatternSynonyms RankNTypes RecordWildCards RecursiveDo ScopedTypeVariables TupleSections TypeFamilies TypeOperators UnicodeSyntax
@@ -68,7 +68,9 @@ executable response
       aeson
     , async
     , base >=4.7 && <5
+    , contravariant
     , data-default
+    , flow
     , generic-lens-labels
     , iso
     , lens
@@ -79,7 +81,10 @@ executable response
     , network
     , optparse-generic
     , pipes
+    , pipes-concurrency
     , protolude
+    , streaming
+    , streaming-concurrency
     , text
     , websockets
   other-modules:

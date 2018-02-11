@@ -19,3 +19,4 @@ extra-deps:
   - mvc-1.1.6
   - streaming-with-0.2.0.0
   - streaming-0.1.4.5
+  # - streaming-concurrency-0.3.0.1
