@@ -9,5 +9,5 @@ compilation recipe
 ---
 
 ```
-stack build --file-watch
+stack build --test --exec "$(stack path --local-install-root)/bin/wsdebug"
 ```
