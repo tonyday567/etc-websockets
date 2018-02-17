@@ -5,148 +5,75 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -fno-warn-type-defaults #-}
- 
+  
 -- | debugging websockets
 module Main where
 
+import Control.Lens
 import Control.Monad.Managed
 import Data.Default
-import Data.Functor.Contravariant
 import Data.Generics.Labels()
 import Etc
 import Etc.WebSockets
 import Protolude
-import qualified Network.WebSockets as WS
+import qualified Data.Text as Text
+import qualified Pipes.Concurrent as P
 
 {-
-controlBox received StartcontrolBox received Start
-
-app started in an asynced threadapp started in an asynced thread
-
-Left (SocketLog "autoClient mailing hi")
-Right "hi"
-Left (SocketLog "server ok")
-Left (SocketLog "autoClient mailing bye")
-Right "bye"
-Left (SocketLog "autoClient mailing ...")
-Left (SocketLog "autoClient finished")
-Right "..."
-^C
+# $(stack path --local-install-root)/bin/wsdebug
+Left (SocketLog "clientBox ok")
+Left (SocketLog "listSender mailing hi")
+Left (SocketLog "responder received: Text \"hi\" Nothing")
+Right "echo: hi"
+Left (SocketLog "received: echo: hi")
+Left (SocketLog "responder sent: echo: hi")
+Left (SocketLog "listSender mailing bye")
+Left (SocketLog "responder received: Text \"bye\" Nothing")
+Left (SocketLog "responder sent: echo: bye")
+Right "echo: bye"
+Left (SocketLog "received: echo: bye")
+Left (SocketLog "listSender mailing ...")
+Left (SocketLog "responder received: Text \"...\" Nothing")
+Left (SocketLog "responder sent: echo: ...")
+Right "echo: ..."
+Left (SocketLog "received: echo: ...")
+Left (SocketLog "listSender mailing msg: hi from the list")
+Left (SocketLog "responder received: Text \"msg: hi from the list\" Nothing")
+Left (SocketLog "listSender mailing q")
+Left (SocketLog "listSender finished")
+Left (ClientComm Closed)
+Left (SocketLog "responder received: Text \"q\" Nothing")
+wsdebug: CloseRequest 1000 "client requested stop"
 -}
-wsDebug :: IO ()
-wsDebug = buff
+wsDebug :: ConfigSocket -> IO ()
+wsDebug cfg = buff (P.bounded 1)
   (\c -> do
-    commit c StartServer
-    commit c StartClient
-    sleep 1
-    commit c CheckServer
-    commit c CheckClient
-    -- commit c StartClient
-    sleep 1
-    -- commit c CloseClient
-    commit c CloseSocket
+    commit c (ServerComm Start)
+    commit c (ClientComm Start)
+    commit c (ServerComm Exists) -- absent
+    commit c (ClientComm Exists) -- logs ok
     sleep 2
-    commit c Nuke)
+    commit c (ServerComm Destroy)
+    commit c (ClientComm Destroy))
   (\e ->
-    void $ with (contramap show <$> (cStdout 1000 :: Managed (Committer Text))) $ \c' ->
+    void $ with (contramap show <$> (cStdout 1000 (P.bounded 1) :: Managed (Committer Text))) $ \c' ->
       concurrently
-      (clientBox def
-        (clientApp (listSender 0.5 ["hi","bye","..."])) (Box c' e))
-      (serverBox def
-        (serverApp (responder qquit)) (Box c' e)))
+      (serverBox cfg
+        (serverApp (responder qquit)) (rmap Left $ Box c' e))
+      (clientBox cfg
+        (clientAppWith
+         (listSender 0.1
+          ["hi","bye","...", "msg: hi from the list", "q"] . committer))
+        (Box c' (fmap Left e))))
   where
-    qquit :: Text -> Either SocketComms Text
+    qquit :: Text -> Either SocketComm Text
     qquit x =
       case x of
-        "q" -> Left CloseSocket
-        x' -> Right x'
-
-
-auto :: IO ()
-auto = clientServer def
-  (clientAppAuto 0.1 ["hi",".","bye"])
-  (wsResponse ("echo: " <>) (/= "q"))
-
-wsResponse :: (Text -> Text) -> (Text -> Bool) -> WS.PendingConnection -> IO ()
-wsResponse f q p = with (mconn p) loop'
-  where
-    loop' c = do
-      msg :: Text <- WS.receiveData c
-      case q msg of
-        True -> WS.sendTextData c (f msg) >> loop' c
-        False -> do
-          WS.sendClose c ("server out" :: Text)
-          sleep 2
-          putStrLn ("server out" :: Text)
-
-clientAppAuto :: Double -> [Text] -> WS.ClientApp ()
-clientAppAuto n ts conn = do
-  putStrLn ("Hello from auto!" :: Text)
-
-  -- Fork a thread that writes server output to stdout
-  aWriter <- async $ forever $ do
-      msg :: Text <- WS.receiveData conn
-      liftIO $ putStrLn ("clientAppAuto received: " <> msg)
-  sequence_ $ (\line -> do
-    sleep n
-    WS.sendTextData conn line) <$> ts
-  WS.sendClose conn ("Bye from auto!" :: Text)
-  cancel aWriter
-
-{-1
-server received: 1
-from server: 1
-2
-server received: 2
-from server: 2
-q
-client thread out
-wsdebug: ConnectionClosed
-clientServer out
--}
-manual :: IO ()
-manual = clientServer def clientAppStdin
-  (serverAppResponseQuit
-   ("from server: " <>)
-    (/= "x"))
-
-clientAppStdin :: WS.ClientApp ()
-clientAppStdin conn = do
-  -- Fork a thread that writes server output to stdout
-  aWriter <- async $ forever $ do
-      msg :: Text <- WS.receiveData conn
-      liftIO $ putStrLn msg
-  loop'
-  cancel aWriter
-  where
-    loop' = do
-        line <- getLine
-        unless ("q" == line) $ WS.sendTextData conn line >> loop'
-
-
-serverAppResponseQuit :: (Text -> Text) -> (Text -> Bool) -> WS.ServerApp
-serverAppResponseQuit f q pending =
-  with (mconn pending) $ \c ->
-    -- WS.forkPingThread conn 30
-    responseQuitServer f q c
-
-responseQuitServer :: (Text -> Text) -> (Text -> Bool) -> WS.Connection -> IO ()
-responseQuitServer f q c = loop'
-  where
-    loop' = do
-      msg :: Text <- WS.receiveData c
-      putStrLn $ "server received: " <> msg
-      when (q msg) $ WS.sendTextData c (f msg) >> loop'
-
-
-clientServer :: ConfigSocket -> WS.ClientApp () -> WS.ServerApp -> IO ()
-clientServer cfg c s = do
-  ts <- async (server cfg s >> putStrLn ("server thread out" :: Text)) 
-  tc <- async (sleep 0.1 >> client cfg c >> putStrLn ("client thread out" :: Text))
-  wait tc
-  sleep 1
-  cancel ts
-  putStrLn ("clientServer out" :: Text)
+        "q" -> Left (ServerComm Stop)
+        "x" -> Left (ClientComm Stop)
+        x' -> if "msg" `Text.isPrefixOf` x'
+          then Left (SocketLog x')
+          else Right ("echo: " <> x')
 
 main :: IO ()
-main = manual
+main = wsDebug (#port .~ 3566 $ def)

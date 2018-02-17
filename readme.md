@@ -9,5 +9,9 @@ compilation recipe
 ---
 
 ```
-stack build --test --exec "$(stack path --local-install-root)/bin/wsdebug"
+stack build --test --fast --haddock --exec "$(stack path --local-install-root)/bin/wsdebug"
+```
+
+```
+lsof -i tcp:3566
 ```

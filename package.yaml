@@ -49,6 +49,7 @@ executables:
     - aeson
     - async
     - base
+    - bytestring
     - contravariant
     - data-default
     - flow
@@ -60,6 +61,7 @@ executables:
     - optparse-generic
     - pipes
     - pipes-concurrency
+    - profunctors
     - protolude
     - streaming
     - text
