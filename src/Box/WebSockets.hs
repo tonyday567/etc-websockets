@@ -4,8 +4,9 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wall #-}
+{-# LANGUAGE TemplateHaskell #-}
 
-module Etc.WebSockets where
+module Box.WebSockets where
 
 import Control.Exception (bracket)
 import Control.Lens
@@ -14,7 +15,8 @@ import Data.Data
 import Data.Default
 import Data.Generics.Labels()
 import Data.Text (Text)
-import Etc
+import Box
+import Box.Time (sleep)
 import Data.IORef
 import GHC.Generics
 import Protolude
@@ -29,12 +31,6 @@ data ConfigSocket = ConfigSocket
 instance Default ConfigSocket where
   def = ConfigSocket "127.0.0.1" 9160
 
-data SocketComm
-  = ServerComm ControlComm
-  | ClientComm ControlComm
-  | SocketLog Text
-  deriving (Show, Read, Eq, Data, Typeable, Generic)
-
 data ControlComm
   = Start
   | Stop
@@ -45,6 +41,15 @@ data ControlComm
   | Closed
   | NoOpCC
   deriving (Show, Read, Eq, Data, Typeable, Generic)
+
+data SocketComm
+  = ServerComm ControlComm
+  | ClientComm ControlComm
+  | SocketLog Text
+  deriving (Show, Read, Eq, Data, Typeable, Generic)
+
+makePrisms ''SocketComm
+
 
 client :: ConfigSocket -> WS.ClientApp () -> IO ()
 client c = WS.runClient (Text.unpack $ c ^. #host) (c ^. #port) "/"
@@ -62,19 +67,19 @@ mconn p = managed $
 
 -- | default websocket receiver
 receiver ::
-  Committer (Either SocketComm Text) ->
+  Committer IO (Either SocketComm Text) ->
   WS.Connection ->
   IO ()
 receiver c conn = forever $ do
   msg <- WS.fromDataMessage <$> WS.receiveDataMessage conn
-  commit c (Right msg)
+  _ <- commit c (Right msg)
   commit c (Left (SocketLog $ "received: " <> msg))
 
 receiver' ::
   WS.WebSocketsData a =>
-  Committer (Either SocketComm a) ->
+  Committer IO (Either SocketComm a) ->
   WS.Connection ->
-  IO ()
+  IO Bool
 receiver' c conn = go where
   go = do
     msg <- WS.receive conn
@@ -89,31 +94,33 @@ receiver' c conn = go where
 -- | default websocket sender
 sender ::
   WS.WebSocketsData a =>
-  Box SocketComm (Either SocketComm a) ->
+  Box IO SocketComm (Either SocketComm a) ->
   WS.Connection ->
   IO ()
 sender (Box c e) conn = forever $ do
   msg <- emit e
   case msg of
-    Right msg' -> WS.sendTextData conn msg'
-    Left comm -> commit c (SocketLog $ "sent: " <> show comm)
+    Nothing -> pure ()
+    Just msg' -> case msg' of
+      Right msg'' -> WS.sendTextData conn msg''
+      Left comm -> void $ commit c (SocketLog $ "sent: " <> show comm)
 
 -- | a receiver that immediately responds
 responder ::
   (Text -> Either SocketComm Text) ->
   -- transformation of the incoming data
-  Committer SocketComm ->
+  Committer IO SocketComm ->
   -- logging and comms
   WS.Connection ->
   IO ()
 responder f c conn = go where
   go = do
     msg <- WS.receiveDataMessage conn
-    commit c (SocketLog $ "responder received: " <> show msg)
+    _ <- commit c (SocketLog $ "responder received: " <> show msg)
     case f (WS.fromDataMessage msg) of
         Right a -> do
           WS.sendTextData conn a
-          commit c (SocketLog $ "responder sent: " <> a)
+          _ <- commit c (SocketLog $ "responder sent: " <> a)
           go
         Left (ServerComm Stop) ->
           WS.sendClose conn ("client requested stop" :: Text) >> go
@@ -126,7 +133,7 @@ responder' ::
   WS.WebSocketsData a =>
   (a -> Either SocketComm a) ->
   -- transformation of the incoming data
-  Committer SocketComm ->
+  Committer IO SocketComm ->
   -- logging and comms
   WS.Connection ->
   IO ()
@@ -135,8 +142,9 @@ responder' f c conn = go where
     msg <- WS.receive conn
     case msg of
       WS.ControlMessage (WS.Close w b) -> do
-        commit c (SocketLog $
-                  "received close message: " <> show w <> " " <> show b)
+        _ <- commit c
+          (SocketLog $
+           "received close message: " <> show w <> " " <> show b)
         WS.sendClose conn ("returning close signal" :: Text)
         go
       WS.ControlMessage _ -> go
@@ -145,26 +153,26 @@ responder' f c conn = go where
         Left (ServerComm Stop) -> WS.sendClose conn ("responding to close signal" :: Text) >> go
         Left _ -> go
 
-
 -- | send a list of text with an intercalated delay effect
 listSender ::
   Double ->
   [Text] ->
-  Committer SocketComm ->
+  Committer IO SocketComm ->
   WS.Connection ->
   IO ()
 listSender n ts c conn = do
   sequence_ $
     (\line -> do
         sleep n
-        commit c (SocketLog $ "listSender mailing " <> line)
+        _ <- commit c (SocketLog $ "listSender mailing " <> line)
         WS.sendTextData conn line) <$> ts
-  commit c (SocketLog "listSender finished")
-  commit c (ClientComm Closed)
+  _ <- commit c (SocketLog "listSender finished")
+  _ <- commit c (ClientComm Closed)
+  pure ()
 
 -- | clientApp with the default receiver and sender function
 clientApp ::
-  Box (Either SocketComm Text) (Either SocketComm Text) ->
+  Box IO (Either SocketComm Text) (Either SocketComm Text) ->
   WS.ClientApp ()
 clientApp b conn = void $ concurrently
   (receiver (committer b) conn)
@@ -172,8 +180,8 @@ clientApp b conn = void $ concurrently
 
 -- | clientApp with the default receiver and a bespoke sender function
 clientAppWith ::
-  (Box SocketComm (Either SocketComm Text) -> WS.ClientApp ()) ->
-  Box (Either SocketComm Text) (Either SocketComm Text) ->
+  (Box IO SocketComm (Either SocketComm Text) -> WS.ClientApp ()) ->
+  Box IO (Either SocketComm Text) (Either SocketComm Text) ->
   WS.ClientApp ()
 clientAppWith sender' b conn = void $ concurrently
   (receiver (committer b) conn)
@@ -181,18 +189,17 @@ clientAppWith sender' b conn = void $ concurrently
 
 -- | server app with functional responder
 serverApp ::
-  WS.WebSocketsData a =>
-  (Committer SocketComm -> WS.Connection -> IO ()) ->
-  Committer (Either SocketComm a) ->
+  (Committer IO SocketComm -> WS.Connection -> IO ()) ->
+  Committer IO (Either SocketComm a) ->
   WS.PendingConnection ->
   IO ()
-serverApp sender' c p = with (mconn p) (sender' (contramap Left c))
+serverApp sender' c p = Control.Monad.Managed.with (mconn p) (sender' (contramap Left c))
 
 -- | an effect that can be started and stopped
 -- committer is an existence test
 controlBox ::
   IO () ->
-  Box Bool ControlComm ->
+  Box IO Bool ControlComm ->
   IO ()
 controlBox app (Box c e) = go =<< newIORef Nothing
   where
@@ -200,23 +207,25 @@ controlBox app (Box c e) = go =<< newIORef Nothing
     go ref = do
       msg <- emit e
       case msg of
-        Exists -> do
-          a <- readIORef ref
-          commit c $ bool True False (isNothing a)
-          go ref
-        Start -> do
-          a <- readIORef ref
-          when (isNothing a) (start ref)
-          go ref
-        Stop ->
-          cancel' ref >> go ref
-        Destroy -> cancel' ref
-        Reset -> do
-          a <- readIORef ref
-          when (not $ isNothing a) (cancel' ref)
-          start ref
-          go ref
-        _ -> go ref
+        Nothing -> pure ()
+        Just msg' -> case msg' of
+          Exists -> do
+            a <- readIORef ref
+            _ <- commit c $ bool True False (isNothing a)
+            go ref
+          Start -> do
+            a <- readIORef ref
+            when (isNothing a) (start ref)
+            go ref
+          Stop ->
+            cancel' ref >> go ref
+          Destroy -> cancel' ref
+          Reset -> do
+            a <- readIORef ref
+            when (not $ isNothing a) (cancel' ref)
+            start ref
+            go ref
+          _ -> go ref
     start ref = do
       a' <- async app
       writeIORef ref (Just a')
@@ -227,8 +236,8 @@ controlBox app (Box c e) = go =<< newIORef Nothing
 -- | single client with SocketComm messaging
 clientBox ::
   ConfigSocket ->
-  (Box (Either SocketComm Text) (Either SocketComm Text) -> WS.ClientApp ()) ->
-  Box (Either SocketComm Text) (Either SocketComm Text) ->
+  (Box IO (Either SocketComm Text) (Either SocketComm Text) -> WS.ClientApp ()) ->
+  Box IO (Either SocketComm Text) (Either SocketComm Text) ->
   IO ()
 clientBox cfg app b@(Box c e) =
   controlBox (client cfg (app b))
@@ -242,8 +251,8 @@ clientBox cfg app b@(Box c e) =
 -- | controlled server
 serverBox ::
   ConfigSocket ->
-  (Committer (Either SocketComm Text) -> WS.ServerApp) ->
-  Box (Either SocketComm Text) (Either SocketComm Text) ->
+  (Committer IO (Either SocketComm Text) -> WS.ServerApp) ->
+  Box IO (Either SocketComm Text) (Either SocketComm Text) ->
   IO ()
 serverBox cfg app (Box c e) =
   controlBox (server cfg (app c))
@@ -254,3 +263,19 @@ serverBox cfg app (Box c e) =
   where
     toSC (Left (ServerComm x)) = x
     toSC _ = NoOpCC
+
+serverBox' ::
+  ConfigSocket ->
+  (Committer IO (Either SocketComm Text) -> WS.ServerApp) ->
+  Box IO (Either SocketComm Text) (Either SocketComm Text) ->
+  IO ()
+serverBox' cfg app (Box c e) =
+  controlBox (server cfg (app c))
+  (Box (contramap
+        (bool
+         (Left (SocketLog "serverBox not ok"))
+         (Left (SocketLog "serverBox ok"))) c) (toSC <$> e))
+  where
+    toSC (Left (ServerComm x)) = x
+    toSC _ = NoOpCC
+

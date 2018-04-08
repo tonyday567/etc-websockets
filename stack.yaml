@@ -1,12 +1,11 @@
-resolver: nightly-2018-01-29
+resolver: nightly-2018-04-05
 
 packages:
   - .
-  # - ../etc
+  - ../box
 
 extra-deps:
-  - streaming-0.2.0.0
-  - git: https://github.com/tonyday567/generic-lens-labels.git
-    commit: 268482be078e543c1f8fef33ae8ceabc7a201f8b
-  - git: https://github.com/tonyday567/etc.git
-    commit: fa29c5770fcf7ccbdeb3b7578b9059cd9bd51dbb
+  - flow-1.0.12
+  - generic-lens-labels-0.1.0.2
+
+allow-newer: true

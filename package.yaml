@@ -1,4 +1,4 @@
-name: etc-websockets
+name: websocket-box
 version: '0.0.1.0'
 synopsis: See readme.md
 description: See readme.md for description.
@@ -7,10 +7,10 @@ author: Tony Day
 maintainer: tonyday567@gmail.com
 copyright: Tony Day (c) 2017
 license: BSD3
-github: tonyday567/mvc-socket
+github: tonyday567/websocket-box
 extra-source-files:
-- stack.yaml
-- readme.md
+  - stack.yaml
+  - readme.md
 library:
   source-dirs: src
   ghc-options:
@@ -20,7 +20,7 @@ library:
     - async
     - base
     - data-default
-    - etc
+    - box
     - flow
     - generic-lens-labels
     - lens
@@ -32,11 +32,11 @@ library:
     - text
     - websockets
   exposed-modules:
-    - Etc.WebSockets
+    - Box.WebSockets
 
 executables:
-  wsdebug:
-    main: wsdebug.hs
+  esocket:
+    main: app.hs
     source-dirs: app
     ghc-options:
     - -funbox-strict-fields
@@ -45,7 +45,7 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - etc-websockets
+    - websocket-box
     - aeson
     - async
     - base
@@ -54,7 +54,7 @@ executables:
     - data-default
     - flow
     - generic-lens-labels
-    - etc
+    - box
     - lens
     - managed
     - network
@@ -65,4 +65,5 @@ executables:
     - protolude
     - streaming
     - text
+    - time
     - websockets

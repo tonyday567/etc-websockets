@@ -1,4 +1,4 @@
 /.stack-work/
 TAGS
 /.DS_Store
-/etc-websockets.cabal
+/websocket-box.cabal

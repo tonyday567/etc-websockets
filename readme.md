@@ -1,15 +1,13 @@
-[etc-websockets](https://tonyday567.github.io/etc-websockets/index.html) [![Build Status](https://travis-ci.org/tonyday567/etc-websockets.svg)](https://travis-ci.org/tonyday567/etc-websockets)
+[websocket-box](https://tonyday567.github.io/websocket-box/index.html) [![Build Status](https://travis-ci.org/tonyday567/websocket-box.svg)](https://travis-ci.org/tonyday567/websocket-box)
 ===
 
-emit - transduce - commit
-
-websockets
+A concurrent, effectful websocket.  In a box.
 
 compilation recipe
 ---
 
 ```
-stack build --test --fast --haddock --exec "$(stack path --local-install-root)/bin/wsdebug"
+stack build --test --fast --haddock --exec "$(stack path --local-install-root)/bin/esocket"
 ```
 
 ```
