@@ -17,12 +17,14 @@ import Control.Lens hiding (Wrapped, Unwrapped)
 import Data.Default
 import Data.Generics.Labels()
 import Box
-import Box.Time
+import Box.Control
 import Box.WebSockets
-import Protolude
+import Protolude hiding (STM)
 import qualified Streaming.Prelude as S
 import Data.IORef
 import Options.Generic
+import Control.Monad.Conc.Class as C
+import Prelude (Show)
 
 {-
 # $(stack path --local-install-root)/bin/wsdebug
@@ -54,6 +56,7 @@ c:Left (ServerComm Destroy)
 wsdebug: ConnectionClosed
 -}
 
+{-
 cTest :: ConfigSocket -> Cont IO (Committer STM SocketComm)
 cTest cfg = fuseCommit $ \e ->
   Box.with (contramap (("c:" <>) . show) <$>
@@ -68,22 +71,27 @@ cTest cfg = fuseCommit $ \e ->
            ["hi","bye","..."] . committer))
          (Box c' e'))
 
+-}
+
 canned :: S.Stream (S.Of SocketComm) IO ()
 canned = delayTimed $ S.each
   [ (2, ServerComm Start)
   , (2, ClientComm Start)
-  , (2.1, ServerComm Exists)
-  , (2.2, ClientComm Exists)
-  , (6, ServerComm Destroy)
-  , (6, ClientComm Destroy)
+  , (2.1, ServerComm Check)
+  , (2.2, ClientComm Check)
+  , (6, ServerComm Kill)
+  , (6, ClientComm Kill)
   ]
 
+{-
 testRun :: ConfigSocket -> IO [SocketComm]
 testRun cfg = do
   ref <- newIORef []
   etc () (Transducer identity)
-    (Box <$> (cTest unbounded cfg <> cIORef ref unbounded) <*> toEmit unbounded canned)
+    (Box <$> (cTest Unbounded cfg <> cIORef ref Unbounded) <*> toEmit Unbounded canned)
   reverse <$> readIORef ref
+
+-}
 
 testRunManual :: ConfigSocket -> IO [SocketComm]
 testRunManual cfg = do
@@ -95,19 +103,24 @@ testRunManual cfg = do
     where
       runClientServer = with box $ \b ->
         concurrently
-          (serverBox cfg (serverApp (responder Right)) b)
-          (clientBox cfg (clientAppWith sender) b)
+          (serverBox cfg (serverApp (responder Right)) (b))
+          (clientBox cfg (clientAppWith sender) (b))
 
-      box :: Cont IO (Box IO (Either SocketComm Text) (Either SocketComm Text)) =
-        Box <$> cShow (cStdout 100 unbounded) <*> eRead (eStdin 100 unbounded)
+      box :: Cont IO (Box (STM IO) ControlComm ControlComm) =
+        Box <$> (showStdout) <*> (readStdin)
 
-testRunServer :: ConfigSocket -> IO ()
+{-
+testRunServer :: ConfigSocket -> IO Bool
 testRunServer cfg =
-  with box $ \box' -> serverBox cfg (serverApp (responder Right)) box'
+  with box $ \box' -> serverBox cfg (serverApp (responder Right)) (liftB box')
     where
-      box :: Cont IO (Box IO (Either SocketComm Text) (Either SocketComm Text)) =
-        Box <$> cShow (cStdout 100 unbounded) <*> eRead (eStdin 100 unbounded)
+      box =
+        Box <$> (cStdout 100) <*> (fmap Right <$> eStdin 100)
 
+-}
+
+
+{-
 testRunClient :: ConfigSocket -> IO ()
 testRunClient cfg =
   with box $
@@ -130,9 +143,11 @@ testRunClient cfg =
         concurrently
         (receiver (committer b) conn)
         (sender (lmap Left b) conn)
-      box :: Cont IO (Box IO (Either SocketComm Text)
+      box :: Cont IO (Box STM (Either SocketComm Text)
                       (Either Text (Either SocketComm Text))) =
-        Box <$> cShow (cStdout 100 unbounded) <*> eRead' (eStdin 100 unbounded)
+        Box <$> (cStdout 100) <*> (fmap Left <$> eStdin 100)
+
+-}
 
 data Run = Client | Server | Auto | Manual deriving (Show, Eq, Generic, Read)
 
@@ -151,11 +166,11 @@ main = do
   let p = fromMaybe (view #port (def::ConfigSocket)) (wsport o)
   let r = fromMaybe Auto (run o)
   case r of
-    Auto ->
-      void $ testRun (#port .~ p $ def)
+--    Auto ->
+--      void $ testRun (#port .~ p $ def)
     Manual ->
       void $ testRunManual (#port .~ p $ def)
-    Client ->
-      testRunClient (#port .~ p $ def)
-    Server ->
-      testRunServer (#port .~ p $ def)
+--    Client ->
+--      testRunClient (#port .~ p $ def)
+--    Server ->
+--      testRunServer (#port .~ p $ def)

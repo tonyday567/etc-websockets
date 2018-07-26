@@ -16,12 +16,13 @@ import Data.Default
 import Data.Generics.Labels()
 import Data.Text (Text)
 import Box
+import Box.Control
 import Box.Time (sleep)
-import Data.IORef
 import GHC.Generics
-import Protolude
+import Protolude hiding (STM)
 import qualified Data.Text as Text
 import qualified Network.WebSockets as WS
+import Control.Monad.Conc.Class
 
 data ConfigSocket = ConfigSocket
   { host :: Text
@@ -31,17 +32,6 @@ data ConfigSocket = ConfigSocket
 instance Default ConfigSocket where
   def = ConfigSocket "127.0.0.1" 9160
 
-data ControlComm
-  = Start
-  | Stop
-  | Reset
-  | Destroy
-  | Exists
-  | Ready
-  | Closed
-  | NoOpCC
-  deriving (Show, Read, Eq, Data, Typeable, Generic)
-
 data SocketComm
   = ServerComm ControlComm
   | ClientComm ControlComm
@@ -49,7 +39,6 @@ data SocketComm
   deriving (Show, Read, Eq, Data, Typeable, Generic)
 
 makePrisms ''SocketComm
-
 
 client :: ConfigSocket -> WS.ClientApp () -> IO ()
 client c = WS.runClient (Text.unpack $ c ^. #host) (c ^. #port) "/"
@@ -124,8 +113,8 @@ responder f c conn = go where
           go
         Left (ServerComm Stop) ->
           WS.sendClose conn ("client requested stop" :: Text) >> go
-        Left (ServerComm Destroy) ->
-          WS.sendClose conn ("client requested destroy" :: Text)
+        Left (ServerComm Kill) ->
+          WS.sendClose conn ("client requested kill" :: Text)
         Left _ -> go
 
 -- | a receiver that immediately responds
@@ -167,7 +156,7 @@ listSender n ts c conn = do
         _ <- commit c (SocketLog $ "listSender mailing " <> line)
         WS.sendTextData conn line) <$> ts
   _ <- commit c (SocketLog "listSender finished")
-  _ <- commit c (ClientComm Closed)
+  _ <- commit c (ClientComm ShutDown)
   pure ()
 
 -- | clientApp with the default receiver and sender function
@@ -195,87 +184,32 @@ serverApp ::
   IO ()
 serverApp sender' c p = Control.Monad.Managed.with (mconn p) (sender' (contramap Left c))
 
--- | an effect that can be started and stopped
--- committer is an existence test
-controlBox ::
-  IO () ->
-  Box IO Bool ControlComm ->
-  IO ()
-controlBox app (Box c e) = go =<< newIORef Nothing
-  where
-    go :: IORef (Maybe (Async ())) -> IO ()
-    go ref = do
-      msg <- emit e
-      case msg of
-        Nothing -> pure ()
-        Just msg' -> case msg' of
-          Exists -> do
-            a <- readIORef ref
-            _ <- commit c $ bool True False (isNothing a)
-            go ref
-          Start -> do
-            a <- readIORef ref
-            when (isNothing a) (start ref)
-            go ref
-          Stop ->
-            cancel' ref >> go ref
-          Destroy -> cancel' ref
-          Reset -> do
-            a <- readIORef ref
-            when (not $ isNothing a) (cancel' ref)
-            start ref
-            go ref
-          _ -> go ref
-    start ref = do
-      a' <- async app
-      writeIORef ref (Just a')
-    cancel' ref = do
-      mapM_ cancel =<< readIORef ref
-      writeIORef ref Nothing
+{-
+
+-}
 
 -- | single client with SocketComm messaging
 clientBox ::
   ConfigSocket ->
   (Box IO (Either SocketComm Text) (Either SocketComm Text) -> WS.ClientApp ()) ->
-  Box IO (Either SocketComm Text) (Either SocketComm Text) ->
-  IO ()
+  Box (STM IO) ControlComm ControlComm ->
+  IO Bool
 clientBox cfg app b@(Box c e) =
-  controlBox (client cfg (app b))
-  (Box (contramap
-        (bool
-         (Left (SocketLog "clientBox not ok"))
-         (Left (SocketLog "clientBox ok"))) c) (toSC <$> e))  where
-    toSC (Left (ClientComm x)) = x
-    toSC _ = NoOpCC
+  controlBox AllowDeath
+  (client cfg (app (liftB $ Box (contramap fromAC c) (fmap toAC e)))) b
+  where
+    toAC = Left . ClientComm
+    fromAC (Left (ClientComm x)) = x
+    fromAC _ = Log "no op"
 
 -- | controlled server
 serverBox ::
   ConfigSocket ->
   (Committer IO (Either SocketComm Text) -> WS.ServerApp) ->
-  Box IO (Either SocketComm Text) (Either SocketComm Text) ->
-  IO ()
-serverBox cfg app (Box c e) =
-  controlBox (server cfg (app c))
-  (Box (contramap
-        (bool
-         (Left (SocketLog "serverBox not ok"))
-         (Left (SocketLog "serverBox ok"))) c) (toSC <$> e))
+  Box (STM IO) ControlComm ControlComm ->
+  IO Bool
+serverBox cfg app b@(Box c _) =
+  controlBox AllowDeath (server cfg (app (liftC $ contramap fromAC c))) b
   where
-    toSC (Left (ServerComm x)) = x
-    toSC _ = NoOpCC
-
-serverBox' ::
-  ConfigSocket ->
-  (Committer IO (Either SocketComm Text) -> WS.ServerApp) ->
-  Box IO (Either SocketComm Text) (Either SocketComm Text) ->
-  IO ()
-serverBox' cfg app (Box c e) =
-  controlBox (server cfg (app c))
-  (Box (contramap
-        (bool
-         (Left (SocketLog "serverBox not ok"))
-         (Left (SocketLog "serverBox ok"))) c) (toSC <$> e))
-  where
-    toSC (Left (ServerComm x)) = x
-    toSC _ = NoOpCC
-
+    fromAC (Left (ServerComm x)) = x
+    fromAC _ = Log "no op"
