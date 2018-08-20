@@ -7,9 +7,5 @@ compilation recipe
 ---
 
 ```
-stack build --test --fast --haddock --exec "$(stack path --local-install-root)/bin/esocket"
-```
-
-```
-lsof -i tcp:3566
+stack build
 ```
