@@ -19,6 +19,7 @@ library:
     - aeson
     - async
     - base
+    - concurrency
     - data-default
     - box
     - flow
@@ -50,6 +51,7 @@ executables:
     - async
     - base
     - bytestring
+    - concurrency
     - contravariant
     - data-default
     - flow

@@ -95,11 +95,11 @@ testRun cfg = do
 
 testRunManual :: ConfigSocket -> IO [SocketComm]
 testRunManual cfg = do
-  ref <- newIORef []
+  ref <- C.newIORef []
   ar <- async runClientServer
   etc () (Transducer identity) box
   link ar
-  reverse <$> readIORef ref
+  reverse <$> C.readIORef ref
     where
       runClientServer = with box $ \b ->
         concurrently
