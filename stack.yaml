@@ -1,13 +1,13 @@
-resolver: nightly-2018-08-17
+resolver: lts-13.29 # nightly-2018-08-17
 
 packages:
   - .
   # - ../box
 
 extra-deps:
-  - flow-1.0.12
-  - generic-lens-labels-0.1.0.2
+  # - flow-1.0.12
+  # - generic-lens-labels-0.1.0.2
   - github: tonyday567/box
-    commit: 509bf00f9d6fa4d68a2c5635a8e71a9625ec36c2
+    commit: ebbabaf5a274111f4cc45fdd3e84ed4d8d32c5d8
 
 allow-newer: true

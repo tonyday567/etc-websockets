@@ -1,0 +1,79 @@
+cabal-version: 2.0
+name:           websocket-box
+version:        0.0.1.0
+synopsis:       See readme.md
+description:    See readme.md for description.
+category:       project
+homepage:       https://github.com/tonyday567/websocket-box#readme
+bug-reports:    https://github.com/tonyday567/websocket-box/issues
+author:         Tony Day
+maintainer:     tonyday567@gmail.com
+copyright:      Tony Day (c) 2017
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    stack.yaml
+    readme.md
+
+source-repository head
+  type: git
+  location: https://github.com/tonyday567/websocket-box
+
+library
+  exposed-modules:
+      Box.WebSockets
+  hs-source-dirs:
+      src
+  ghc-options: -funbox-strict-fields
+  build-depends:
+      aeson
+    , async
+    , base
+    , box
+    , concurrency
+    , data-default
+    , flow
+    , generic-lens
+    , lens
+    , managed
+    , network
+    , pipes-concurrency
+    , protolude
+    , streaming
+    , text
+    , websockets
+  default-language: Haskell2010
+
+executable esocket
+  main-is: app.hs
+  other-modules:
+      Paths_websocket_box
+  hs-source-dirs:
+      app
+  ghc-options: -funbox-strict-fields -fforce-recomp -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , async
+    , base
+    , box
+    , bytestring
+    , concurrency
+    , contravariant
+    , data-default
+    , flow
+    , generic-lens
+    , lens
+    , managed
+    , network
+    , optparse-generic
+    , pipes
+    , pipes-concurrency
+    , profunctors
+    , protolude
+    , streaming
+    , text
+    , time
+    , websocket-box
+    , websockets
+  default-language: Haskell2010
