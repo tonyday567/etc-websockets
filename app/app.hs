@@ -109,6 +109,24 @@ testRunManual cfg = do
       box :: Cont IO (Box (STM IO) ControlComm ControlComm) =
         Box <$> (showStdout) <*> (readStdin)
 
+tester :: ConfigSocket -> IO [SocketComm]
+tester cfg = do
+  ref <- C.newIORef []
+  ar <- async runClientServer
+  etc () (Transducer identity) box
+  link ar
+  reverse <$> C.readIORef ref
+    where
+      runClientServer = with box $ \b ->
+        concurrently
+          (serverBox cfg (serverApp (responder Right)) (b))
+          (clientBox cfg (clientAppWith sender) (b))
+
+      box :: Cont IO (Box (STM IO) ControlComm ControlComm) =
+        Box <$> (contramap (("out:" ++) . show) <$> cStdout 100) <*> (readStdin)
+
+
+
 {-
 testRunServer :: ConfigSocket -> IO Bool
 testRunServer cfg =
@@ -164,7 +182,7 @@ main :: IO ()
 main = do
   o :: Opts Unwrapped <- unwrapRecord "etc-websockets"
   let p = fromMaybe (view #port (def::ConfigSocket)) (wsport o)
-  let r = fromMaybe Auto (run o)
+  let r = fromMaybe Manual (run o)
   case r of
 --    Auto ->
 --      void $ testRun (#port .~ p $ def)
