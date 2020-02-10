@@ -33,8 +33,8 @@ instance Default ConfigSocket where
   def = ConfigSocket "127.0.0.1" 9160
 
 data SocketComm
-  = ServerComm ControlComm
-  | ClientComm ControlComm
+  = ServerComm ControlRequest
+  | ClientComm ControlRequest
   | SocketLog Text
   deriving (Show, Read, Eq, Data, Typeable, Generic)
 
@@ -156,7 +156,7 @@ listSender n ts c conn = do
         _ <- commit c (SocketLog $ "listSender mailing " <> line)
         WS.sendTextData conn line) <$> ts
   _ <- commit c (SocketLog "listSender finished")
-  _ <- commit c (ClientComm ShutDown)
+  -- _ <- commit c (ClientComm ShutDown)
   pure ()
 
 -- | clientApp with the default receiver and sender function
@@ -192,24 +192,24 @@ serverApp sender' c p = Control.Monad.Managed.with (mconn p) (sender' (contramap
 clientBox ::
   ConfigSocket ->
   (Box IO (Either SocketComm Text) (Either SocketComm Text) -> WS.ClientApp ()) ->
-  Box (STM IO) ControlComm ControlComm ->
-  IO Bool
+  Box (STM IO) ControlResponse ControlRequest ->
+  IO ()
 clientBox cfg app b@(Box c e) =
-  controlBox AllowDeath
+  controlBox
   (client cfg (app (liftB $ Box (contramap fromAC c) (fmap toAC e)))) b
   where
     toAC = Left . ClientComm
     fromAC (Left (ClientComm x)) = x
-    fromAC _ = Log "no op"
+    -- fromAC _ = Log "no op"
 
 -- | controlled server
 serverBox ::
   ConfigSocket ->
   (Committer IO (Either SocketComm Text) -> WS.ServerApp) ->
-  Box (STM IO) ControlComm ControlComm ->
-  IO Bool
+  Box (STM IO) ControlResponse ControlRequest ->
+  IO ()
 serverBox cfg app b@(Box c _) =
-  controlBox AllowDeath (server cfg (app (liftC $ contramap fromAC c))) b
+  controlBox (server cfg (app (liftC $ contramap fromAC c))) b
   where
     fromAC (Left (ServerComm x)) = x
-    fromAC _ = Log "no op"
+    -- fromAC _ = Log "no op"
