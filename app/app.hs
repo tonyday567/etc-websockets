@@ -13,6 +13,7 @@
 -- | debugging websockets
 module Main where
 
+import Control.Category (id)
 import Control.Lens hiding (Wrapped, Unwrapped)
 import Data.Default
 import Data.Generics.Labels()
@@ -73,14 +74,14 @@ cTest cfg = fuseCommit $ \e ->
 
 -}
 
-canned :: S.Stream (S.Of SocketComm) IO ()
+canned :: S.Stream (S.Of ControlRequest) IO ()
 canned = delayTimed $ S.each
-  [ (2, ServerComm Start)
-  , (2, ClientComm Start)
-  , (2.1, ServerComm Check)
-  , (2.2, ClientComm Check)
-  , (6, ServerComm Kill)
-  , (6, ClientComm Kill)
+  [ (2, Start)
+  , (2, Start)
+  , (2.1, Check)
+  , (2.2, Check)
+  , (6, Quit)
+  , (6, Quit)
   ]
 
 {-
@@ -93,39 +94,21 @@ testRun cfg = do
 
 -}
 
-testRunManual :: ConfigSocket -> IO [SocketComm]
+testRunManual :: ConfigSocket -> IO ()
 testRunManual cfg = do
-  ref <- C.newIORef []
-  ar <- async runClientServer
-  etc () (Transducer identity) box
-  link ar
-  reverse <$> C.readIORef ref
+  -- ar <- async runClientServer
+  etc () (Transducer $ S.map (Info . show)) box
+  -- link ar
     where
+{-
       runClientServer = with box $ \b ->
         concurrently
           (serverBox cfg (serverApp (responder Right)) (b))
           (clientBox cfg (clientAppWith sender) (b))
+-}
 
-      box :: Cont IO (Box (STM IO) ControlComm ControlComm) =
+      box :: Cont IO (Box (STM IO) ControlResponse ControlRequest) =
         Box <$> (showStdout) <*> (readStdin)
-
-tester :: ConfigSocket -> IO [SocketComm]
-tester cfg = do
-  ref <- C.newIORef []
-  ar <- async runClientServer
-  etc () (Transducer identity) box
-  link ar
-  reverse <$> C.readIORef ref
-    where
-      runClientServer = with box $ \b ->
-        concurrently
-          (serverBox cfg (serverApp (responder Right)) (b))
-          (clientBox cfg (clientAppWith sender) (b))
-
-      box :: Cont IO (Box (STM IO) ControlComm ControlComm) =
-        Box <$> (contramap (("out:" ++) . show) <$> cStdout 100) <*> (readStdin)
-
-
 
 {-
 testRunServer :: ConfigSocket -> IO Bool
@@ -181,13 +164,13 @@ instance ParseRecord (Opts Wrapped)
 main :: IO ()
 main = do
   o :: Opts Unwrapped <- unwrapRecord "etc-websockets"
-  let p = fromMaybe (view #port (def::ConfigSocket)) (wsport o)
+  let p = fromMaybe (view #port (defaultConfigSocket)) (wsport o)
   let r = fromMaybe Manual (run o)
   case r of
 --    Auto ->
 --      void $ testRun (#port .~ p $ def)
     Manual ->
-      void $ testRunManual (#port .~ p $ def)
+      void $ testRunManual (#port .~ p $ defaultConfigSocket)
 --    Client ->
 --      testRunClient (#port .~ p $ def)
 --    Server ->
