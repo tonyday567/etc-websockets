@@ -40,24 +40,12 @@ mconn p = managed $
   (WS.acceptRequest p)
   (\conn -> WS.sendClose conn ("Bye from mconn!" :: Text))
 
--- * client server debug routine
-
--- | default websocket receiver
 receiver ::
-  Committer IO (Either ControlResponse Text) ->
-  WS.Connection ->
-  IO ()
-receiver c conn = forever $ do
-  msg <- WS.fromDataMessage <$> WS.receiveDataMessage conn
-  _ <- commit c (Right msg)
-  commit c (Left (Info $ "received: " <> msg))
-
-receiver' ::
   WS.WebSocketsData a =>
   Committer IO (Either ControlResponse a) ->
   WS.Connection ->
   IO Bool
-receiver' c conn = go where
+receiver c conn = go where
   go = do
     msg <- WS.receive conn
     case msg of
@@ -71,16 +59,14 @@ receiver' c conn = go where
 -- | default websocket sender
 sender ::
   WS.WebSocketsData a =>
-  Box IO ControlResponse (Either ControlResponse a) ->
+  Emitter IO a ->
   WS.Connection ->
   IO ()
-sender (Box c e) conn = forever $ do
+sender e conn = forever $ do
   msg <- emit e
   case msg of
     Nothing -> pure ()
-    Just msg' -> case msg' of
-      Right msg'' -> WS.sendTextData conn msg''
-      Left comm -> void $ commit c (Info $ "sent: " <> show comm)
+    Just msg' -> WS.sendTextData conn msg'
 
 -- | a receiver that immediately responds
 responder ::
@@ -149,20 +135,20 @@ listSender n ts c conn = do
 
 -- | clientApp with the default receiver and sender function
 clientApp ::
-  Box IO (Either ControlResponse Text) (Either ControlResponse Text) ->
+  Box IO (Either ControlResponse Text) Text ->
   WS.ClientApp ()
-clientApp b conn = void $ concurrently
-  (receiver (committer b) conn)
-  (sender (lmap Left b) conn)
+clientApp (Box c e) conn = void $ concurrently
+  (receiver c conn)
+  (sender e conn)
 
 -- | clientApp with the default receiver and a bespoke sender function
 clientAppWith ::
   (Box IO ControlResponse (Either ControlRequest Text) -> WS.ClientApp ()) ->
   Box IO (Either ControlResponse Text) (Either ControlRequest Text) ->
   WS.ClientApp ()
-clientAppWith sender' b conn = void $ concurrently
+clientAppWith sender'' b conn = void $ concurrently
   (receiver (committer b) conn)
-  (sender' (lmap Left b) conn)
+  (sender'' (lmap Left b) conn)
 
 -- | server app with functional responder
 serverApp ::
@@ -170,9 +156,9 @@ serverApp ::
   Committer IO (Either ControlRequest a) ->
   WS.PendingConnection ->
   IO ()
-serverApp sender' c p = Control.Monad.Managed.with (mconn p) (sender' (contramap Left c))
+serverApp sender'' c p = Control.Monad.Managed.with (mconn p) (sender'' (contramap Left c))
 
--- | single client with SocketComm messaging
+-- | single client
 clientBox ::
   ConfigSocket ->
   (Box IO (Either ControlResponse Text) (Either ControlRequest Text) -> WS.ClientApp ()) ->
@@ -186,7 +172,6 @@ clientBox cfg app b@(Box c e) =
     toAC = Left
     fromAC (Left x) = x
     fromAC _ = Info "no op"
-
 
 -- | controlled server
 serverBox ::
